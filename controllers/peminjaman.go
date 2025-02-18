@@ -22,6 +22,19 @@ func CreatePeminjaman(c *gin.Context) {
 	}
 	peminjaman.IDUser = idUser
 
+	// Cek jumlah peminjaman user
+	var count int64
+	if err := config.DB.Model(&models.Peminjaman{}).Where("id_user = ? AND status = ?", idUser, "disetujui").Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghitung jumlah peminjaman"})
+		return
+	}
+
+	// Batasi jumlah peminjaman menjadi 5
+	if count >= 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah memiliki maksimal 5 peminjaman yang disetujui"})
+		return
+	}
+
 	idBukuStr := c.PostForm("id_buku")
 	idBuku, err := utils.ParseUint(idBukuStr)
 	if err != nil {
@@ -51,7 +64,7 @@ func CreatePeminjaman(c *gin.Context) {
 	}
 
 	// Set data peminjaman
-	peminjaman.DurasiHari = 5
+	peminjaman.DurasiHari = 1
 	peminjaman.TanggalPinjam = time.Now()
 	peminjaman.TanggalKembali = peminjaman.TanggalPinjam.Add(time.Duration(peminjaman.DurasiHari) * 24 * time.Hour)
 	peminjaman.Status = "disetujui"
@@ -198,18 +211,31 @@ func DeletePeminjaman(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dihapus"})
 }
 
+// CreateBooking - Membuat booking baru
 func CreateBooking(c *gin.Context) {
 	var peminjaman models.Peminjaman
 
 	// Ambil id_user dari form
 	idUserStr := c.PostForm("id_user")
 	idUser, err := utils.ParseUint(idUserStr)
-	
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ID User tidak valid"})
 		return
 	}
 	peminjaman.IDUser = idUser
+
+	// Cek jumlah booking user yang sedang "pending"
+	var count int64
+	if err := config.DB.Model(&models.Peminjaman{}).Where("id_user = ? AND status = ?", idUser, "pending").Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghitung jumlah booking"})
+		return
+	}
+
+	// Batasi jumlah booking menjadi 5
+	if count >= 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah memiliki maksimal 5 booking yang belum disetujui"})
+		return
+	}
 
 	// Ambil id_buku dari form
 	idBukuStr := c.PostForm("id_buku")
@@ -221,7 +247,7 @@ func CreateBooking(c *gin.Context) {
 	peminjaman.IDBuku = idBuku
 
 	// Set DurasiHari ke 5 hari
-	peminjaman.DurasiHari = 5
+	peminjaman.DurasiHari = 1
 	peminjaman.TanggalPinjam = time.Now()
 
 	// Set Status menjadi "pending"
@@ -291,7 +317,7 @@ func ReturnBook(c *gin.Context) {
     // Periksa apakah keterlambatan terjadi
     if peminjaman.TanggalKembali.After(peminjaman.TanggalPinjam.Add(time.Duration(peminjaman.DurasiHari) * 24 * time.Hour)) {
         jamTerlambat := int(time.Since(peminjaman.TanggalPinjam.Add(time.Duration(peminjaman.DurasiHari) * 24 * time.Hour)).Hours())
-        peminjaman.Denda = float64(jamTerlambat * 50) // 50 per jam
+        peminjaman.Denda = float64(jamTerlambat * 500)
     } else {
         peminjaman.Denda = 0
     }
@@ -324,7 +350,9 @@ func DeleteBooking(c *gin.Context) {
 func GetAllBookings(c *gin.Context) {
     var peminjaman []models.Peminjaman
 
-    if err := config.DB.Where("status = ?", "pending").Preload("User").Preload("Buku").Find(&peminjaman).Error; err != nil {
+    if err := config.DB.Where("status = ?", "pending").Preload("User").Preload("Buku"). Preload("Buku.Penerbit").
+	Preload("Buku.Penulis").
+	Preload("Buku.Kategori").Find(&peminjaman).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data peminjaman"})
         return
     }
@@ -339,6 +367,9 @@ func GetBookingByID(c *gin.Context) {
     if err := config.DB.Where("id_peminjaman = ? AND status = ?", id, "pending").
         Preload("User").
         Preload("Buku").
+		Preload("Buku.Penerbit").
+        Preload("Buku.Penulis").
+        Preload("Buku.Kategori").
         First(&peminjaman).Error; err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "Booking tidak ditemukan atau tidak dalam status pending"})
         return
@@ -346,6 +377,8 @@ func GetBookingByID(c *gin.Context) {
 
     c.JSON(http.StatusOK, gin.H{"message": "Detail booking berhasil diambil", "data": peminjaman})
 }
+
+
 func GetBookingByUserID(c *gin.Context) {
     idUser := c.Param("id_user")
     var peminjaman []models.Peminjaman
@@ -353,6 +386,9 @@ func GetBookingByUserID(c *gin.Context) {
     if err := config.DB.Where("id_user = ? AND status = ?", idUser, "pending").
         Preload("User").
         Preload("Buku").
+		Preload("Buku.Penerbit").
+        Preload("Buku.Penulis").
+        Preload("Buku.Kategori").
         Find(&peminjaman).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data peminjaman"})
         return
