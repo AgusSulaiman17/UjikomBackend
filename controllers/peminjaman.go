@@ -22,19 +22,6 @@ func CreatePeminjaman(c *gin.Context) {
 	}
 	peminjaman.IDUser = idUser
 
-	// Cek jumlah peminjaman user
-	var count int64
-	if err := config.DB.Model(&models.Peminjaman{}).Where("id_user = ? AND status = ?", idUser, "disetujui").Count(&count).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghitung jumlah peminjaman"})
-		return
-	}
-
-	// Batasi jumlah peminjaman menjadi 5
-	if count >= 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah memiliki maksimal 5 peminjaman yang disetujui"})
-		return
-	}
-
 	idBukuStr := c.PostForm("id_buku")
 	idBuku, err := utils.ParseUint(idBukuStr)
 	if err != nil {
@@ -42,6 +29,24 @@ func CreatePeminjaman(c *gin.Context) {
 		return
 	}
 	peminjaman.IDBuku = idBuku
+
+	// Cek apakah user sudah meminjam buku yang sama dan belum mengembalikannya
+	var existingPeminjaman models.Peminjaman
+	if err := config.DB.Where("id_user = ? AND id_buku = ? AND status = 'disetujui' AND status_kembali = false", idUser, idBuku).First(&existingPeminjaman).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah meminjam buku ini, kembalikan terlebih dahulu sebelum meminjam lagi"})
+		return
+	}
+
+	// Batasi jumlah peminjaman menjadi 5
+	var count int64
+	if err := config.DB.Model(&models.Peminjaman{}).Where("id_user = ? AND status = ?", idUser, "disetujui").Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghitung jumlah peminjaman"})
+		return
+	}
+	if count >= 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah memiliki maksimal 5 peminjaman yang disetujui"})
+		return
+	}
 
 	// Ambil data buku dari database
 	var buku models.Buku
@@ -76,18 +81,7 @@ func CreatePeminjaman(c *gin.Context) {
 		return
 	}
 
-	// Preload data peminjaman setelah disimpan
-	var peminjamanWithDetails models.Peminjaman
-	if err := config.DB.Preload("User").
-		Preload("Buku.Penerbit").
-		Preload("Buku.Penulis").
-		Preload("Buku.Kategori").
-		First(&peminjamanWithDetails, peminjaman.IDPeminjaman).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data peminjaman setelah dibuat"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dibuat dan disetujui", "data": peminjamanWithDetails})
+	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dibuat dan disetujui", "data": peminjaman})
 }
 
 
@@ -215,7 +209,6 @@ func DeletePeminjaman(c *gin.Context) {
 func CreateBooking(c *gin.Context) {
 	var peminjaman models.Peminjaman
 
-	// Ambil id_user dari form
 	idUserStr := c.PostForm("id_user")
 	idUser, err := utils.ParseUint(idUserStr)
 	if err != nil {
@@ -224,20 +217,6 @@ func CreateBooking(c *gin.Context) {
 	}
 	peminjaman.IDUser = idUser
 
-	// Cek jumlah booking user yang sedang "pending"
-	var count int64
-	if err := config.DB.Model(&models.Peminjaman{}).Where("id_user = ? AND status = ?", idUser, "pending").Count(&count).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghitung jumlah booking"})
-		return
-	}
-
-	// Batasi jumlah booking menjadi 5
-	if count >= 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah memiliki maksimal 5 booking yang belum disetujui"})
-		return
-	}
-
-	// Ambil id_buku dari form
 	idBukuStr := c.PostForm("id_buku")
 	idBuku, err := utils.ParseUint(idBukuStr)
 	if err != nil {
@@ -246,32 +225,37 @@ func CreateBooking(c *gin.Context) {
 	}
 	peminjaman.IDBuku = idBuku
 
-	// Set DurasiHari ke 5 hari
+	// Cek apakah user sudah membooking buku yang sama
+	var existingBooking models.Peminjaman
+	if err := config.DB.Where("id_user = ? AND id_buku = ? AND status = ?", idUser, idBuku, "pending").First(&existingBooking).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah membooking buku ini, tunggu hingga diproses"})
+		return
+	}
+
+	// Batasi jumlah booking menjadi 5
+	var count int64
+	if err := config.DB.Model(&models.Peminjaman{}).Where("id_user = ? AND status = ?", idUser, "pending").Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghitung jumlah booking"})
+		return
+	}
+	if count >= 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah memiliki maksimal 5 booking yang belum disetujui"})
+		return
+	}
+
+	// Set data peminjaman
 	peminjaman.DurasiHari = 1
 	peminjaman.TanggalPinjam = time.Now()
-
-	// Set Status menjadi "pending"
 	peminjaman.Status = "pending"
 	peminjaman.StatusKembali = false
 
-	// Simpan peminjaman
+	// Simpan booking ke database
 	if err := config.DB.Create(&peminjaman).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat booking"})
 		return
 	}
 
-	// Preload relasi setelah peminjaman berhasil dibuat
-	var peminjamanWithDetails models.Peminjaman
-	if err := config.DB.Preload("User").
-		Preload("Buku.Penerbit").
-		Preload("Buku.Penulis").
-		Preload("Buku.Kategori").
-		First(&peminjamanWithDetails, peminjaman.IDPeminjaman).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data peminjaman setelah dibuat"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dibuat", "data": peminjamanWithDetails})
+	c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dibuat", "data": peminjaman})
 }
 
 

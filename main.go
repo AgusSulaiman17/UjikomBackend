@@ -59,6 +59,7 @@ func main() {
 	routes.Penulis(router)
 	routes.BukuRoutes(router)
 	routes.Peminjaman(router)
+	routes.Favorit(router)
 	router.Static("/uploads", "uploads")
 
 	// Jalankan server di port 8080
