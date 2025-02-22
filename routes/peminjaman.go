@@ -14,6 +14,7 @@ func Peminjaman(router *gin.Engine) {
 		Peminjaman.GET("/user/:id_user", controllers.GetPeminjamanByUserID)
 		Peminjaman.PUT("/:id", controllers.UpdatePeminjaman)
 		Peminjaman.DELETE("/:id", controllers.DeletePeminjaman)
+		Peminjaman.DELETE("/byuser/:id", controllers.DeletePeminjamanByUser)
 
 		// Booking Routes
 		Peminjaman.POST("/booking", controllers.CreateBooking)  

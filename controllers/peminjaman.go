@@ -87,27 +87,23 @@ func CreatePeminjaman(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dibuat dan disetujui", "data": peminjaman})
 }
 
-// GetAllPeminjaman - Mengambil semua data peminjaman
 func GetAllPeminjaman(c *gin.Context) {
-	var peminjaman []models.Peminjaman
+    var peminjaman []models.Peminjaman
 
-	// Cek apakah tabel peminjaman dan buku tersedia
-	if config.DB.Migrator().HasTable(&models.Peminjaman{}) && config.DB.Migrator().HasTable(&models.Buku{}) {
-		if err := config.DB.
-			Preload("User").
-			Preload("Buku").
-			Preload("Buku.Penerbit").
-			Preload("Buku.Penulis").
-			Preload("Buku.Kategori").
-			Find(&peminjaman).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data peminjaman"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"data": peminjaman})
-	} else {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Tabel peminjaman atau buku tidak ditemukan"})
-	}
+    if err := config.DB.
+        Preload("User").
+        Preload("Buku").
+        Preload("Buku.Penerbit").
+        Preload("Buku.Penulis").
+        Preload("Buku.Kategori").
+        Find(&peminjaman).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data peminjaman"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"data": peminjaman})
 }
+
 
 // GetPeminjaman - Mengambil data peminjaman berdasarkan ID
 func GetPeminjaman(c *gin.Context) {
@@ -131,11 +127,12 @@ func GetPeminjaman(c *gin.Context) {
 	}
 }
 
+// GetPeminjamanByUserID - Mengambil daftar peminjaman berdasarkan ID user
 func GetPeminjamanByUserID(c *gin.Context) {
     idUser := c.Param("id_user")
     var peminjaman []models.Peminjaman
 
-    if err := config.DB.Where("id_user = ?", idUser).
+    if err := config.DB.Where("id_user = ? AND is_deleted_by_user = false", idUser).
         Preload("User").
         Preload("Buku").
         Preload("Buku.Penerbit").
@@ -203,6 +200,26 @@ func DeletePeminjaman(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dihapus"})
+}
+
+// DeletePeminjamanByUser - Menandai peminjaman sebagai dihapus oleh user
+func DeletePeminjamanByUser(c *gin.Context) {
+    id := c.Param("id")
+
+    var peminjaman models.Peminjaman
+    if err := config.DB.First(&peminjaman, id).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Peminjaman tidak ditemukan"})
+        return
+    }
+
+    // Tandai sebagai dihapus oleh user, bukan benar-benar menghapus
+    peminjaman.IsDeletedByUser = true
+    if err := config.DB.Save(&peminjaman).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus peminjaman"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dihapus oleh user"})
 }
 
 // CreateBooking - Membuat booking baru

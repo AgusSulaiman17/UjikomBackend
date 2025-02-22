@@ -16,5 +16,6 @@ type Peminjaman struct {
     Denda          float64   `json:"denda"`
     DibuatPada     time.Time `gorm:"autoCreateTime" json:"dibuat_pada"`
     DiperbaruiPada time.Time `gorm:"autoUpdateTime" json:"diperbarui_pada"`
+    IsDeletedByUser bool `gorm:"default:false" json:"deleted_by_user"`
 }
 
