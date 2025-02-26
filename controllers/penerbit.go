@@ -23,6 +23,13 @@ func CreatePenerbit(c *gin.Context) {
 		return
 	}
 
+	// Cek apakah nama penerbit sudah ada
+	var existingPenerbit models.Penerbit
+	if err := config.DB.Where("nama = ?", penerbit.Nama).First(&existingPenerbit).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama penerbit sudah digunakan"})
+		return
+	}
+
 	// Simpan ke database
 	if err := config.DB.Create(&penerbit).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat penerbit"})
@@ -34,6 +41,7 @@ func CreatePenerbit(c *gin.Context) {
 		"data":    penerbit,
 	})
 }
+
 
 // GetPenerbitByID handles getting a penerbit by ID
 func GetPenerbitByID(c *gin.Context) {
@@ -86,6 +94,15 @@ func UpdatePenerbit(c *gin.Context) {
 		return
 	}
 
+	// Hanya lakukan pengecekan jika nama penerbit berubah
+	if input.Nama != penerbit.Nama {
+		var existingPenerbit models.Penerbit
+		if err := config.DB.Where("nama = ?", input.Nama).First(&existingPenerbit).Error; err == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Nama penerbit sudah digunakan oleh penerbit lain"})
+			return
+		}
+	}
+
 	// Update data penerbit
 	penerbit.Nama = input.Nama
 	if err := config.DB.Save(&penerbit).Error; err != nil {
@@ -98,6 +115,7 @@ func UpdatePenerbit(c *gin.Context) {
 		"data":    penerbit,
 	})
 }
+
 
 // DeletePenerbit handles deleting a penerbit by ID
 func DeletePenerbit(c *gin.Context) {

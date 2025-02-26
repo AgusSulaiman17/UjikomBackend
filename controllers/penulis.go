@@ -4,6 +4,7 @@ import (
 	"backend/config"
 	"backend/models"
 	"net/http"
+	
 	"github.com/gin-gonic/gin"
 )
 
@@ -11,13 +12,20 @@ import (
 func CreatePenulis(c *gin.Context) {
 	var input models.Penulis
 
-	// Bind the form data to the Penulis struct
+	// Bind JSON input ke struct Penulis
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
 		return
 	}
 
-	// Save penulis to the database
+	// Validasi: Cek apakah nama penulis sudah ada
+	var existingPenulis models.Penulis
+	if err := config.DB.Where("nama = ?", input.Nama).First(&existingPenulis).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama penulis sudah digunakan"})
+		return
+	}
+
+	// Simpan penulis ke database
 	if err := config.DB.Create(&input).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat penulis"})
 		return
@@ -25,6 +33,7 @@ func CreatePenulis(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Penulis berhasil dibuat", "data": input})
 }
+
 
 // GetPenulisByID handles getting a penulis by ID
 func GetPenulisByID(c *gin.Context) {
@@ -55,30 +64,49 @@ func GetAllPenulis(c *gin.Context) {
 
 // UpdatePenulis handles updating an existing penulis
 func UpdatePenulis(c *gin.Context) {
-	var input models.Penulis
+	// Ambil ID penulis dari parameter URL
 	penulisId := c.Param("id")
 
-	// Bind the form data to the Penulis struct
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
-		return
-	}
-
-	// Find the existing penulis by ID
+	// Cek apakah penulis dengan ID tersebut ada
 	var penulis models.Penulis
 	if err := config.DB.First(&penulis, penulisId).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Penulis tidak ditemukan"})
 		return
 	}
 
-	// Update penulis
-	if err := config.DB.Model(&penulis).Updates(input).Error; err != nil {
+	// Bind JSON input ke struct
+	var input models.Penulis
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid"})
+		return
+	}
+
+	// Validasi nama tidak boleh kosong
+	if input.Nama == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama penulis tidak boleh kosong"})
+		return
+	}
+
+	// Hanya lakukan pengecekan jika nama penulis berubah
+	if input.Nama != penulis.Nama {
+		var existingPenulis models.Penulis
+		if err := config.DB.Where("nama = ?", input.Nama).First(&existingPenulis).Error; err == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Nama penulis sudah digunakan oleh penulis lain"})
+			return
+		}
+	}
+
+	// Update data penulis
+	penulis.Nama = input.Nama
+	if err := config.DB.Save(&penulis).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui data penulis"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Penulis berhasil diperbarui", "data": penulis})
 }
+
+
 
 // DeletePenulis handles deleting a penulis by ID
 func DeletePenulis(c *gin.Context) {

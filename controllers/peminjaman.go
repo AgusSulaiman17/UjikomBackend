@@ -72,7 +72,7 @@ func CreatePeminjaman(c *gin.Context) {
 	}
 
 	// Set data peminjaman
-	peminjaman.DurasiHari = 1
+	peminjaman.DurasiHari = 5
 	peminjaman.TanggalPinjam = time.Now()
 	peminjaman.TanggalKembali = peminjaman.TanggalPinjam.Add(24 * time.Hour)
 	peminjaman.Status = "disetujui"
@@ -225,7 +225,9 @@ func DeletePeminjamanByUser(c *gin.Context) {
 // CreateBooking - Membuat booking baru
 func CreateBooking(c *gin.Context) {
 	var peminjaman models.Peminjaman
+	var buku models.Buku
 
+	// Ambil ID User dari request
 	idUserStr := c.PostForm("id_user")
 	idUser, err := utils.ParseUint(idUserStr)
 	if err != nil {
@@ -234,6 +236,7 @@ func CreateBooking(c *gin.Context) {
 	}
 	peminjaman.IDUser = idUser
 
+	// Ambil ID Buku dari request
 	idBukuStr := c.PostForm("id_buku")
 	idBuku, err := utils.ParseUint(idBukuStr)
 	if err != nil {
@@ -242,7 +245,17 @@ func CreateBooking(c *gin.Context) {
 	}
 	peminjaman.IDBuku = idBuku
 
-	// Hitung jumlah peminjaman dan booking gabungan
+	// Cek apakah buku tersedia
+	if err := config.DB.First(&buku, idBuku).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Buku tidak ditemukan"})
+		return
+	}
+	if buku.Jumlah <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Buku sedang tidak tersedia"})
+		return
+	}
+
+	// Hitung total peminjaman dan booking user
 	var totalCount int64
 	if err := config.DB.Model(&models.Peminjaman{}).
 		Where("id_user = ? AND (status = 'disetujui' OR status = 'pending')", idUser).
@@ -263,8 +276,15 @@ func CreateBooking(c *gin.Context) {
 		return
 	}
 
+	// Kurangi jumlah buku
+	buku.Jumlah -= 1
+	if err := config.DB.Save(&buku).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengupdate jumlah buku"})
+		return
+	}
+
 	// Set data booking
-	peminjaman.DurasiHari = 1
+	peminjaman.DurasiHari = 5 
 	peminjaman.TanggalPinjam = time.Now()
 	peminjaman.Status = "pending"
 	peminjaman.StatusKembali = false
@@ -278,6 +298,7 @@ func CreateBooking(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dibuat", "data": peminjaman})
 }
 
+
 func ApproveBooking(c *gin.Context) {
     id := c.Param("id")
     var peminjaman models.Peminjaman
@@ -288,6 +309,12 @@ func ApproveBooking(c *gin.Context) {
         return
     }
 
+    // Cek apakah peminjaman sudah disetujui sebelumnya
+    if peminjaman.Status == "disetujui" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Booking sudah disetujui sebelumnya"})
+        return
+    }
+
     // Ambil data buku berdasarkan IDBuku
     var buku models.Buku
     if err := config.DB.First(&buku, peminjaman.IDBuku).Error; err != nil {
@@ -295,21 +322,13 @@ func ApproveBooking(c *gin.Context) {
         return
     }
 
-    // Periksa apakah stok buku masih tersedia
-    if buku.Jumlah <= 0 {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Stok buku habis, tidak dapat menyetujui booking"})
-        return
-    }
-
-    // Kurangi jumlah buku
-    buku.Jumlah -= 1
-    if err := config.DB.Save(&buku).Error; err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengupdate jumlah buku"})
-        return
-    }
-
     // Set status peminjaman menjadi disetujui
     peminjaman.Status = "disetujui"
+
+    // Hitung tanggal kembali berdasarkan tanggal pinjam
+    if peminjaman.TanggalPinjam.IsZero() {
+        peminjaman.TanggalPinjam = time.Now() // Jika kosong, gunakan waktu sekarang
+    }
     peminjaman.TanggalKembali = peminjaman.TanggalPinjam.Add(time.Duration(peminjaman.DurasiHari) * 24 * time.Hour)
 
     // Simpan perubahan peminjaman ke database
@@ -318,8 +337,9 @@ func ApproveBooking(c *gin.Context) {
         return
     }
 
-    c.JSON(http.StatusOK, gin.H{"message": "Booking disetujui, jumlah buku berkurang", "data": peminjaman})
+    c.JSON(http.StatusOK, gin.H{"message": "Booking disetujui", "data": peminjaman})
 }
+
 
 
 
@@ -381,14 +401,30 @@ func ReturnBook(c *gin.Context) {
 func DeleteBooking(c *gin.Context) {
     id := c.Param("id")
     var peminjaman models.Peminjaman
+    var buku models.Buku
 
+    // Cari peminjaman berdasarkan ID
     if err := config.DB.First(&peminjaman, id).Error; err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "Booking tidak ditemukan"})
         return
     }
 
+    // Cari buku berdasarkan ID buku dalam peminjaman
+    if err := config.DB.First(&buku, peminjaman.IDBuku).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Buku tidak ditemukan"})
+        return
+    }
+
+    // Hapus peminjaman dari database
     if err := config.DB.Delete(&peminjaman).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus booking"})
+        return
+    }
+
+    // Tambah jumlah buku setelah peminjaman dihapus
+    buku.Jumlah += 1
+    if err := config.DB.Save(&buku).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengupdate jumlah buku"})
         return
     }
 

@@ -1,13 +1,13 @@
 package controllers
 
 import (
-	"net/http"
-	"strconv"
-	"path/filepath"
 	"backend/config"
 	"backend/models"
 	"fmt"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +36,12 @@ func CreateBuku(c *gin.Context) {
 	var existingBuku models.Buku
 	if err := config.DB.Where("isbn = ?", input.ISBN).First(&existingBuku).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "ISBN sudah digunakan untuk buku lain"})
+		return
+	}
+
+	// Cek apakah judul buku sudah ada
+	if err := config.DB.Where("judul = ?", input.Judul).First(&existingBuku).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Judul buku sudah digunakan"})
 		return
 	}
 
@@ -70,8 +76,6 @@ func CreateBuku(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Buku berhasil ditambahkan", "data": input})
 }
 
-
-
 // Helper untuk parse string ke uint
 func parseUint(value string) uint64 {
 	parsed, _ := strconv.ParseUint(value, 10, 64)
@@ -90,7 +94,6 @@ func GetAllBuku(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": buku})
 }
 
-
 // Get Buku by ID
 func GetBukuByID(c *gin.Context) {
 	id := c.Param("id")
@@ -104,7 +107,6 @@ func GetBukuByID(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"data": buku})
 }
-
 
 // Update Buku
 func UpdateBuku(c *gin.Context) {
@@ -140,9 +142,16 @@ func UpdateBuku(c *gin.Context) {
 	}
 
 	// Update field jika ada perubahan
-	if judul != "" {
+	// Cek apakah judul buku sudah digunakan oleh buku lain
+	if judul != "" && judul != buku.Judul {
+		var existingBuku models.Buku
+		if err := config.DB.Where("judul = ?", judul).First(&existingBuku).Error; err == nil && existingBuku.IDBuku != buku.IDBuku {
+			c.JSON(http.StatusConflict, gin.H{"error": "Judul buku sudah digunakan"})
+			return
+		}
 		buku.Judul = judul
 	}
+
 	if idPenerbit != 0 {
 		buku.IDPenerbit = idPenerbit
 	}
@@ -198,8 +207,6 @@ func UpdateBuku(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Buku berhasil diperbarui", "data": buku})
 }
-
-
 
 // Delete Buku
 func DeleteBuku(c *gin.Context) {

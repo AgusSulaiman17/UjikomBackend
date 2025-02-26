@@ -1,27 +1,41 @@
 package controllers
 
 import (
-	"backend/config"
-	"backend/models"
+	"fmt"
 	"net/http"
-	"golang.org/x/crypto/bcrypt"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+	"backend/config"
+	"backend/models"
 )
-
-// CreateUser handles creating a new user
+// CreateUser menangani pembuatan pengguna baru
 func CreateUser(c *gin.Context) {
 	var input models.User
 
-	// Bind JSON data to the User struct
+	// Bind JSON data ke struct User
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
 		return
 	}
 
 	// Validasi input wajib
-	if input.Name == "" || input.Email == "" || input.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama, Email, dan Password tidak boleh kosong"})
+	if input.Name == "" || input.Email == "" || input.Password == "" || input.NoTelepon == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama, Email, Password, dan No Telepon tidak boleh kosong"})
+		return
+	}
+
+	// Cek apakah Email sudah digunakan
+	var existingUser models.User
+	if err := config.DB.Where("email = ?", input.Email).First(&existingUser).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Email sudah terdaftar"})
+		return
+	}
+
+	// Cek apakah No Telepon sudah digunakan
+	if err := config.DB.Where("no_telepon = ?", input.NoTelepon).First(&existingUser).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No Telepon sudah terdaftar"})
 		return
 	}
 
@@ -52,20 +66,15 @@ func CreateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Pengguna berhasil dibuat", "data": input})
 }
 
-// UpdateUser handles updating an existing user
+// UpdateUser menangani pembaruan data pengguna
 func UpdateUser(c *gin.Context) {
 	var input models.User
-	userId := c.Param("id")
+	userIdStr := c.Param("id")
 
-	// Bind JSON data to the User struct
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
-		return
-	}
-
-	// Validasi input wajib
-	if input.Name == "" || input.Email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama dan Email tidak boleh kosong"})
+	// Konversi userId ke integer
+	userId, err := strconv.Atoi(userIdStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID pengguna tidak valid"})
 		return
 	}
 
@@ -76,21 +85,49 @@ func UpdateUser(c *gin.Context) {
 		return
 	}
 
-	// Hash password jika diperbarui
-	if input.Password != "" {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	// Ambil data teks dari FormData
+	input.Name = c.PostForm("name")
+	input.Email = c.PostForm("email")
+	input.Alamat = c.PostForm("alamat")
+	input.NoTelepon = c.PostForm("no_telepon")
+
+	// Cek apakah Email sudah digunakan oleh user lain
+	var existingUser models.User
+	if err := config.DB.Where("email = ? AND id != ?", input.Email, userId).First(&existingUser).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Email sudah digunakan oleh pengguna lain"})
+		return
+	}
+
+	// Cek apakah No Telepon sudah digunakan oleh user lain
+	if err := config.DB.Where("no_telepon = ? AND id != ?", input.NoTelepon, userId).First(&existingUser).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No Telepon sudah digunakan oleh pengguna lain"})
+		return
+	}
+
+	// Jika password ada, hash password baru
+	if password := c.PostForm("password"); password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi kata sandi"})
 			return
 		}
 		input.Password = string(hashedPassword)
 	} else {
-		input.Password = user.Password // Jika tidak diisi, tetap gunakan password lama
+		input.Password = user.Password // Jika kosong, gunakan password lama
 	}
 
-	// Jika image kosong, gunakan image lama
-	if input.Image == "" {
-		input.Image = user.Image
+	// Cek apakah ada file gambar diupload
+	file, err := c.FormFile("image")
+	if err == nil {
+		// Simpan gambar di folder "uploads"
+		filename := fmt.Sprintf("uploads/%d_%s", userId, file.Filename)
+		if err := c.SaveUploadedFile(file, filename); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+			return
+		}
+		input.Image = filename // Simpan path gambar di database
+	} else {
+		input.Image = user.Image // Jika tidak upload gambar, gunakan gambar lama
 	}
 
 	// Update user

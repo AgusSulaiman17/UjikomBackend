@@ -30,7 +30,7 @@ func GetKategoriByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": kategori})
 }
 
-// Create a new category
+// CreateKategori handles creating a new category
 func CreateKategori(c *gin.Context) {
 	var input struct {
 		Kategori string `json:"kategori" binding:"required"`
@@ -41,27 +41,35 @@ func CreateKategori(c *gin.Context) {
 		return
 	}
 
-	kategori := models.Kategori{
-		Kategori: input.Kategori,
-	}
-
-	if err := config.DB.Create(&kategori).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create category"})
+	// Validasi: Cek apakah kategori sudah ada
+	var existingKategori models.Kategori
+	if err := config.DB.Where("kategori = ?", input.Kategori).First(&existingKategori).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Kategori sudah digunakan"})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"data": kategori})
+
+	// Simpan kategori ke database
+	kategori := models.Kategori{Kategori: input.Kategori}
+	if err := config.DB.Create(&kategori).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat kategori"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Kategori berhasil dibuat", "data": kategori})
 }
 
-// Update a category
+// UpdateKategori handles updating an existing category
 func UpdateKategori(c *gin.Context) {
 	id := c.Param("id")
 	var kategori models.Kategori
 
+	// Cek apakah kategori dengan ID tersebut ada
 	if err := config.DB.First(&kategori, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Kategori tidak ditemukan"})
 		return
 	}
 
+	// Bind JSON input ke struct
 	var input struct {
 		Kategori string `json:"kategori" binding:"required"`
 	}
@@ -70,13 +78,29 @@ func UpdateKategori(c *gin.Context) {
 		return
 	}
 
-	kategori.Kategori = input.Kategori
-	if err := config.DB.Save(&kategori).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category"})
+	// Validasi: Pastikan kategori tidak kosong
+	if input.Kategori == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama kategori tidak boleh kosong"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": kategori})
+	// Hanya lakukan pengecekan jika kategori berubah
+	if input.Kategori != kategori.Kategori {
+		var existingKategori models.Kategori
+		if err := config.DB.Where("kategori = ?", input.Kategori).First(&existingKategori).Error; err == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Kategori sudah digunakan"})
+			return
+		}
+	}
+
+	// Update kategori
+	kategori.Kategori = input.Kategori
+	if err := config.DB.Save(&kategori).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui kategori"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Kategori berhasil diperbarui", "data": kategori})
 }
 
 // Delete a category
