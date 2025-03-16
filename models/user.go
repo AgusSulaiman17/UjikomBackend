@@ -9,4 +9,5 @@ type User struct {
 	Image     string `json:"image" form:"image"`
 	Alamat    string `json:"alamat" form:"alamat"`
 	NoTelepon string `json:"no_telepon" form:"no_telepon"`
+	Approved  bool   `gorm:"default:false" json:"approved"` 
 }

@@ -8,9 +8,9 @@ import (
 	"backend/models"
 	"backend/utils"
 	"github.com/gin-gonic/gin"
+    "fmt"
 )
 
-// CreatePeminjaman - Membuat peminjaman baru
 func CreatePeminjaman(c *gin.Context) {
 	var peminjaman models.Peminjaman
 
@@ -64,6 +64,13 @@ func CreatePeminjaman(c *gin.Context) {
 		return
 	}
 
+	// Ambil data user untuk notifikasi email
+	var user models.User
+	if err := config.DB.First(&user, idUser).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
+		return
+	}
+
 	// Kurangi stok buku
 	buku.Jumlah -= 1
 	if err := config.DB.Save(&buku).Error; err != nil {
@@ -74,7 +81,7 @@ func CreatePeminjaman(c *gin.Context) {
 	// Set data peminjaman
 	peminjaman.DurasiHari = 5
 	peminjaman.TanggalPinjam = time.Now()
-	peminjaman.TanggalKembali = peminjaman.TanggalPinjam.Add(24 * time.Hour)
+	peminjaman.TanggalKembali = peminjaman.TanggalPinjam.Add(5 * 24 * time.Hour) // 5 hari
 	peminjaman.Status = "disetujui"
 	peminjaman.StatusKembali = false
 
@@ -84,8 +91,22 @@ func CreatePeminjaman(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dibuat dan disetujui", "data": peminjaman})
+	// Kirim email notifikasi
+	subject := "Peminjaman Buku Berhasil"
+	body := fmt.Sprintf(
+		"Halo %s,\n\nAnda telah berhasil meminjam buku dengan judul '%s'.\n\nTanggal Peminjaman: %s\nTanggal Kembali: %s\n\nHarap kembalikan buku sebelum tanggal kembali untuk menghindari denda.\n\nTerima kasih telah menggunakan layanan kami.\n\nSalam,\nPerpustakaan",
+		user.Name, buku.Judul, peminjaman.TanggalPinjam.Format("02-01-2006"), peminjaman.TanggalKembali.Format("02-01-2006"),
+	)
+
+	err = utils.SendEmail(user.Email, subject, body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Peminjaman berhasil dibuat, namun gagal mengirim email notifikasi"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dibuat dan email notifikasi telah dikirim", "data": peminjaman})
 }
+
 
 func GetAllPeminjaman(c *gin.Context) {
     var peminjaman []models.Peminjaman
@@ -222,7 +243,6 @@ func DeletePeminjamanByUser(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"message": "Peminjaman berhasil dihapus oleh user"})
 }
 
-// CreateBooking - Membuat booking baru
 func CreateBooking(c *gin.Context) {
 	var peminjaman models.Peminjaman
 	var buku models.Buku
@@ -276,6 +296,13 @@ func CreateBooking(c *gin.Context) {
 		return
 	}
 
+	// Ambil data user untuk notifikasi email
+	var user models.User
+	if err := config.DB.First(&user, idUser).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
+		return
+	}
+
 	// Kurangi jumlah buku
 	buku.Jumlah -= 1
 	if err := config.DB.Save(&buku).Error; err != nil {
@@ -284,7 +311,7 @@ func CreateBooking(c *gin.Context) {
 	}
 
 	// Set data booking
-	peminjaman.DurasiHari = 5 
+	peminjaman.DurasiHari = 5
 	peminjaman.TanggalPinjam = time.Now()
 	peminjaman.Status = "pending"
 	peminjaman.StatusKembali = false
@@ -295,9 +322,21 @@ func CreateBooking(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dibuat", "data": peminjaman})
-}
+	// Kirim email notifikasi
+	subject := "Booking Buku Berhasil Dibuat"
+	body := fmt.Sprintf(
+		"Halo %s,\n\nAnda telah berhasil membooking buku dengan judul '%s'.\n\nStatus booking Anda saat ini: %s\nSilakan menunggu konfirmasi dari admin.\n\nSalam,\nPerpustakaan",
+		user.Name, buku.Judul, peminjaman.Status,
+	)
 
+	err = utils.SendEmail(user.Email, subject, body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Booking berhasil dibuat, namun gagal mengirim email notifikasi"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dibuat dan email notifikasi telah dikirim", "data": peminjaman})
+}
 
 func ApproveBooking(c *gin.Context) {
     id := c.Param("id")
@@ -322,6 +361,13 @@ func ApproveBooking(c *gin.Context) {
         return
     }
 
+    // Ambil data user untuk notifikasi email
+    var user models.User
+    if err := config.DB.First(&user, peminjaman.IDUser).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
+        return
+    }
+
     // Set status peminjaman menjadi disetujui
     peminjaman.Status = "disetujui"
 
@@ -337,9 +383,21 @@ func ApproveBooking(c *gin.Context) {
         return
     }
 
-    c.JSON(http.StatusOK, gin.H{"message": "Booking disetujui", "data": peminjaman})
-}
+    // Kirim email notifikasi
+    subject := "Booking Buku Disetujui"
+    body := fmt.Sprintf(
+        "Halo %s,\n\nBooking buku dengan judul '%s' telah disetujui.\nSilakan mengambil buku di perpustakaan.\n\nTanggal Peminjaman: %s\nTanggal Kembali: %s\n\nSalam,\nPerpustakaan",
+        user.Name, buku.Judul, peminjaman.TanggalPinjam.Format("02-01-2006"), peminjaman.TanggalKembali.Format("02-01-2006"),
+    )
 
+    err := utils.SendEmail(user.Email, subject, body)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Booking berhasil disetujui, namun gagal mengirim email notifikasi"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "Booking disetujui dan email notifikasi telah dikirim", "data": peminjaman})
+}
 
 
 
@@ -394,8 +452,34 @@ func ReturnBook(c *gin.Context) {
         return
     }
 
-    c.JSON(http.StatusOK, gin.H{"message": "Buku berhasil dikembalikan, stok buku bertambah", "data": peminjaman})
+    // Ambil data user untuk notifikasi email
+    var user models.User
+    if err := config.DB.First(&user, peminjaman.IDUser).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
+        return
+    }
+
+    // Kirim email notifikasi
+    subject := "Konfirmasi Pengembalian Buku"
+    body := fmt.Sprintf("Halo %s,\n\nBuku dengan judul '%s' telah berhasil dikembalikan.\n", user.Name, buku.Judul)
+
+    if hariTerlambat > 0 {
+        body += fmt.Sprintf("Namun, Anda terlambat mengembalikan buku selama %d hari.\nDenda yang harus dibayar: Rp%.2f\n\n", hariTerlambat, peminjaman.Denda)
+    } else {
+        body += "Terima kasih telah mengembalikan buku tepat waktu!\n\n"
+    }
+
+    body += "Salam,\nPerpustakaan"
+
+    err := utils.SendEmail(user.Email, subject, body)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Buku berhasil dikembalikan, namun gagal mengirim email notifikasi"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "Buku berhasil dikembalikan, stok buku bertambah, dan email notifikasi telah dikirim", "data": peminjaman})
 }
+
 
 
 func DeleteBooking(c *gin.Context) {
@@ -430,6 +514,7 @@ func DeleteBooking(c *gin.Context) {
 
     c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dihapus"})
 }
+
 
 func GetAllBookings(c *gin.Context) {
     var peminjaman []models.Peminjaman

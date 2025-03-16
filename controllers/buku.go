@@ -39,11 +39,6 @@ func CreateBuku(c *gin.Context) {
 		return
 	}
 
-	// Cek apakah judul buku sudah ada
-	if err := config.DB.Where("judul = ?", input.Judul).First(&existingBuku).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Judul buku sudah digunakan"})
-		return
-	}
 
 	// Proses file gambar
 	file, err := c.FormFile("gambar")
@@ -142,13 +137,7 @@ func UpdateBuku(c *gin.Context) {
 	}
 
 	// Update field jika ada perubahan
-	// Cek apakah judul buku sudah digunakan oleh buku lain
-	if judul != "" && judul != buku.Judul {
-		var existingBuku models.Buku
-		if err := config.DB.Where("judul = ?", judul).First(&existingBuku).Error; err == nil && existingBuku.IDBuku != buku.IDBuku {
-			c.JSON(http.StatusConflict, gin.H{"error": "Judul buku sudah digunakan"})
-			return
-		}
+	if judul != "" {
 		buku.Judul = judul
 	}
 

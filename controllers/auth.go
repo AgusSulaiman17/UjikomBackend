@@ -30,6 +30,12 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	// **Cek apakah user sudah disetujui**
+	if !user.Approved {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Akun belum disetujui oleh admin"})
+		return
+	}
+
 	// Compare hashed passwords
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Password salah"})
