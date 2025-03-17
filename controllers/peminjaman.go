@@ -275,6 +275,14 @@ func CreateBooking(c *gin.Context) {
 		return
 	}
 
+	// Cek apakah user sudah meminjam buku yang sama dan belum mengembalikannya
+	var existingLoan models.Peminjaman
+	if err := config.DB.Where("id_user = ? AND id_buku = ? AND status_kembali = false", idUser, idBuku).
+		First(&existingLoan).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah meminjam buku ini dan belum mengembalikannya"})
+		return
+	}
+
 	// Hitung total peminjaman dan booking user
 	var totalCount int64
 	if err := config.DB.Model(&models.Peminjaman{}).
@@ -337,6 +345,7 @@ func CreateBooking(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dibuat dan email notifikasi telah dikirim", "data": peminjaman})
 }
+
 
 func ApproveBooking(c *gin.Context) {
     id := c.Param("id")
@@ -486,6 +495,7 @@ func DeleteBooking(c *gin.Context) {
     id := c.Param("id")
     var peminjaman models.Peminjaman
     var buku models.Buku
+    var user models.User
 
     // Cari peminjaman berdasarkan ID
     if err := config.DB.First(&peminjaman, id).Error; err != nil {
@@ -496,6 +506,12 @@ func DeleteBooking(c *gin.Context) {
     // Cari buku berdasarkan ID buku dalam peminjaman
     if err := config.DB.First(&buku, peminjaman.IDBuku).Error; err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "Buku tidak ditemukan"})
+        return
+    }
+
+    // Cari data user untuk notifikasi email
+    if err := config.DB.First(&user, peminjaman.IDUser).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
         return
     }
 
@@ -512,7 +528,20 @@ func DeleteBooking(c *gin.Context) {
         return
     }
 
-    c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dihapus"})
+    // Kirim email notifikasi pembatalan booking
+    subject := "Booking Buku Dibatalkan"
+    body := fmt.Sprintf(
+        "Halo %s,\n\nBooking buku dengan judul '%s' telah dibatalkan.\n\nSalam,\nPerpustakaan",
+        user.Name, buku.Judul,
+    )
+
+    err := utils.SendEmail(user.Email, subject, body)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Booking berhasil dihapus, namun gagal mengirim email notifikasi"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "Booking berhasil dihapus dan email notifikasi telah dikirim"})
 }
 
 
